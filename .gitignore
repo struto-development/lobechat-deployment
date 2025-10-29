@@ -1,0 +1,55 @@
+# Environment files
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Data directories
+data/
+postgres-data/
+minio-data/
+casdoor-data/
+
+# Backup files
+*.backup
+*.bak
+backups/
+/backups/
+
+# SSL certificates
+*.pem
+*.crt
+*.key
+*.cer
+config/nginx/ssl/*
+!config/nginx/ssl/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker files
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Sensitive configuration
+secrets/
+credentials/
+
+# Keep example files
+!.env.example
+!*.example
