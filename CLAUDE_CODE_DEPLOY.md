@@ -19,15 +19,16 @@ free -h  # Need at least 4GB RAM
 ping -c 1 google.com
 ```
 
-## Step 1: Clone or Create Repository
+## Step 1: Clone Repository
 
 ```bash
 # Create deployment directory
 mkdir -p /opt/lobechat-deployment
-cd /opt/lobechat-deployment
+cd /opt
 
-# Clone repository (if exists) or create structure
-git clone https://github.com/[your-org]/lobechat-deployment.git . || echo "Creating fresh deployment"
+# Clone the official repository
+git clone https://github.com/struto-development/lobechat-deployment.git
+cd lobechat-deployment
 ```
 
 ## Step 2: Create Required Files

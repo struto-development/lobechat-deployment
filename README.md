@@ -6,7 +6,7 @@ Production-ready deployment of LobeChat with Casdoor SSO authentication, Postgre
 
 ```bash
 # Clone this repository
-git clone https://github.com/your-org/lobechat-deployment.git
+git clone https://github.com/struto-development/lobechat-deployment.git
 cd lobechat-deployment
 
 # Copy environment template
@@ -300,7 +300,8 @@ docker compose restart casdoor
 ## 🤝 Support
 
 - Documentation: [docs/](docs/)
-- Issues: [GitHub Issues](https://github.com/your-org/lobechat-deployment/issues)
+- Repository: [GitHub](https://github.com/struto-development/lobechat-deployment)
+- Issues: [GitHub Issues](https://github.com/struto-development/lobechat-deployment/issues)
 - Discord: [Join Community](https://discord.gg/lobechat)
 
 ## 📜 License
