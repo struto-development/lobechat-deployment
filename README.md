@@ -1,33 +1,43 @@
 # LobeChat Enterprise Deployment
 
-Production-ready deployment of LobeChat with Casdoor SSO authentication, PostgreSQL database, MinIO storage, and SearXNG search.
+Production-ready deployment of LobeChat with Casdoor SSO authentication, PostgreSQL database, MinIO storage, and ngrok tunnels.
 
 ## 🚀 Quick Start
+
+### Option 1: Automated Deployment with Claude Code (Recommended)
+
+Simply tell Claude Code:
+> **"Deploy LobeChat using instructions at https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/AGENT_DEPLOY.md"**
+
+### Option 2: Manual Deployment
 
 ```bash
 # Clone this repository
 git clone https://github.com/struto-development/lobechat-deployment.git
 cd lobechat-deployment
 
-# Copy environment template
-cp .env.example .env
-
-# Edit configuration (REQUIRED)
-nano .env
-
-# Run deployment script
+# Follow the AGENT_DEPLOY.md instructions
+# OR use the manual deployment script:
 chmod +x scripts/deploy.sh
 ./scripts/deploy.sh
 ```
+
+## ✨ Key Features
+
+- **ngrok Tunnels**: Pre-configured with custom domains (no SSL setup needed)
+- **Casdoor SSO**: Organization dropdown and multi-org support
+- **PostgreSQL + pgvector**: AI embeddings support
+- **MinIO S3**: Object storage for files
+- **Automated Backups**: Daily backup with retention
+- **One-Command Deploy**: Single URL for Claude Code automation
 
 ## 📋 Prerequisites
 
 - Docker Engine 20.10+
 - Docker Compose 2.0+
-- Domain name with DNS control (for production)
-- SSL certificates (for production)
 - 4GB RAM minimum
 - 20GB disk space
+- (Optional) Domain name for production without ngrok
 
 ## 🏗️ Architecture
 
@@ -46,24 +56,21 @@ graph TD
 
 ```
 lobechat-deployment/
+├── AGENT_DEPLOY.md          # Complete deployment instructions for Claude Code
+├── DEPLOY_REFERENCE.md      # Quick reference guide
 ├── docker-compose.yml       # Main orchestration file
 ├── .env.example             # Environment template
 ├── config/
 │   ├── casdoor/
 │   │   ├── app.conf         # Casdoor configuration
 │   │   └── init_data.json   # Initial users/orgs
-│   ├── nginx/
-│   │   ├── nginx.conf       # Nginx main config
-│   │   └── sites/           # Site configurations
-│   └── searxng/             # Search configuration
+│   └── nginx/
+│       ├── nginx.conf       # Nginx main config
+│       └── sites/           # Site configurations
 ├── scripts/
 │   ├── deploy.sh            # Automated deployment
 │   ├── backup.sh            # Backup script
 │   └── restore.sh           # Restore script
-├── docs/
-│   ├── DEPLOYMENT.md        # Detailed deployment guide
-│   ├── SECURITY.md          # Security guidelines
-│   └── CLAUDE_CODE.md       # Claude Code instructions
 └── README.md                # This file
 ```
 

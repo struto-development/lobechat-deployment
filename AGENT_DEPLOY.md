@@ -44,9 +44,8 @@ echo "✅ Directory structure created"
 
 ## Step 3: Create docker-compose.yml with ngrok
 
-Create `/opt/lobechat/docker-compose.yml`:
-
-```yaml
+```bash
+cat > /opt/lobechat/docker-compose.yml << 'EOF'
 version: '3.8'
 
 services:
@@ -175,13 +174,15 @@ services:
 networks:
   lobe-network:
     driver: bridge
+EOF
+
+echo "✅ Docker Compose configuration created"
 ```
 
 ## Step 4: Create ngrok Configuration
 
-Create `/opt/lobechat/ngrok.yml`:
-
-```yaml
+```bash
+cat > /opt/lobechat/ngrok.yml << 'EOF'
 version: "2"
 authtoken: 34hLGYtNDN51ZhnuWmZ7u41ZxzR_55fpXZgDZbpPoJJbkQxGp
 tunnels:
@@ -193,6 +194,9 @@ tunnels:
     proto: http
     addr: 8000
     domain: auth.strutoai-lobechat.struto.co.uk.ngrok.app
+EOF
+
+echo "✅ ngrok configuration created"
 ```
 
 ## Step 5: Create Environment Configuration
