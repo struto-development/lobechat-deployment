@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:RELEASE.2024-04-22T22-12-26Z
+    image: minio/minio:latest
     container_name: lobe-minio
     network_mode: 'service:network-service'
     volumes:
