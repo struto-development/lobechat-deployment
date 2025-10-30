@@ -4,22 +4,36 @@ Production-ready deployment of LobeChat with Casdoor SSO authentication, Postgre
 
 ## 🚀 Quick Start
 
-### Option 1: Automated Deployment with Claude Code (Recommended)
+### Option 1: One-Line Installation (Fastest)
+
+```bash
+curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh | sudo bash
+```
+
+This single command will:
+- Check prerequisites
+- Create directory structure
+- Generate secure passwords
+- Deploy all services with proper timing
+- Create backups automation
+- Provide full deployment summary
+
+### Option 2: Automated Deployment with Claude Code
 
 Simply tell Claude Code:
 > **"Deploy LobeChat using instructions at https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/AGENT_DEPLOY.md"**
 
-### Option 2: Manual Deployment
+### Option 3: Manual Deployment
 
 ```bash
 # Clone this repository
 git clone https://github.com/struto-development/lobechat-deployment.git
 cd lobechat-deployment
 
-# Follow the AGENT_DEPLOY.md instructions
-# OR use the manual deployment script:
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
+# Run the installation script
+sudo ./install.sh
+
+# OR follow the step-by-step instructions in AGENT_DEPLOY.md
 ```
 
 ## ✨ Key Features
