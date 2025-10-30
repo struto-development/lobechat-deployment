@@ -132,6 +132,10 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
+      minio:
+        condition: service_started
+      casdoor:
+        condition: service_started
     environment:
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@localhost:5432/lobe
       - APP_URL=${APP_URL}
@@ -429,25 +433,48 @@ cd /opt/lobechat
 # Pull all images
 docker compose pull
 
-# Start all services
+# Start PostgreSQL first
+docker compose up -d postgresql
+
+# Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL to be ready..."
+for i in {1..30}; do
+  if docker exec lobe-postgres pg_isready -U postgres 2>/dev/null; then
+    echo "✅ PostgreSQL is ready"
+    break
+  fi
+  echo "Waiting for PostgreSQL... ($i/30)"
+  sleep 2
+done
+
+# Create the lobe database (CRITICAL STEP)
+echo "Creating lobe database..."
+docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;" 2>/dev/null || echo "Database 'lobe' may already exist"
+
+# Start remaining services
 docker compose up -d
 
-# Wait for services to initialize
-echo "Waiting for services to start..."
-sleep 30
+# Wait for all services to initialize
+echo "Waiting for all services to start..."
+sleep 20
 
 # Initialize Casdoor data
+echo "Initializing Casdoor..."
 docker exec lobe-casdoor sh -c '
   if [ ! -f /initialized ]; then
+    sleep 5
     curl -X POST "http://localhost:8000/api/init-data" \
       -H "Content-Type: application/json" \
-      -d @/init_data.json
+      -d @/init_data.json && \
     touch /initialized
   fi
-'
+' || echo "Casdoor initialization may have already completed"
 
 # Verify all services are running
 docker compose ps
+
+# Check for any errors in LobeChat
+docker logs lobe-chat 2>&1 | tail -20 | grep -E "error|Error|ERROR" || echo "No errors found in LobeChat logs"
 
 echo "✅ Services deployed with ngrok tunnels"
 ```
@@ -620,7 +647,46 @@ ngrok Config: /opt/lobechat/ngrok.yml
 EOF
 ```
 
-## Troubleshooting ngrok Issues
+## Troubleshooting Common Issues
+
+### Database "lobe" does not exist error
+
+If LobeChat fails with `database "lobe" does not exist`:
+
+```bash
+# Create the database manually
+docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;"
+
+# Restart LobeChat
+docker compose restart lobe
+
+# Check logs
+docker logs lobe-chat --tail 50
+```
+
+### Service startup timing issues
+
+If services fail due to dependencies not ready:
+
+```bash
+# Stop all services
+docker compose down
+
+# Start in correct order with delays
+docker compose up -d postgresql
+sleep 10
+docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;" 2>/dev/null || true
+docker compose up -d minio casdoor
+sleep 10
+docker compose up -d lobe
+sleep 10
+docker compose up -d ngrok
+
+# Verify all running
+docker compose ps
+```
+
+### ngrok tunnel issues
 
 If ngrok tunnels fail:
 
@@ -634,12 +700,42 @@ docker compose restart ngrok
 # Verify auth token
 grep authtoken /opt/lobechat/ngrok.yml
 
-# Check if domains are already in use
+# Check if another instance is using the domains
 # (Only one ngrok instance can use these domains at a time)
+```
 
-# Full restart if needed
-docker compose down
+### Complete reset procedure
+
+If you need to start fresh:
+
+```bash
+# Stop and remove everything
+docker compose down -v
+rm -rf /opt/lobechat/data/*
+
+# Recreate from Step 8
+cd /opt/lobechat
+docker compose pull
+docker compose up -d postgresql
+sleep 10
+docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;"
 docker compose up -d
+```
+
+### Verify deployment health
+
+```bash
+# Check all containers are running
+docker compose ps
+
+# Test database connections
+docker exec lobe-postgres psql -U postgres -d lobe -c "\dt"
+docker exec lobe-postgres psql -U postgres -d casdoor -c "\dt"
+
+# Check service logs for errors
+docker logs lobe-chat 2>&1 | grep -i error || echo "No errors"
+docker logs lobe-casdoor 2>&1 | grep -i error || echo "No errors"
+docker logs lobe-minio 2>&1 | grep -i error || echo "No errors"
 ```
 
 ---
