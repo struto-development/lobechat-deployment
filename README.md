@@ -11,12 +11,13 @@ curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deploymen
 ```
 
 This single command will:
-- Check prerequisites
+- **Prompt for port range** (you'll need 8 consecutive ports, e.g., 8000-8007)
+- Check prerequisites and port availability
 - Create directory structure
 - Generate secure passwords
 - Deploy all services with proper timing
 - Create backups automation
-- Provide full deployment summary
+- Provide full deployment summary with assigned ports
 
 ### Option 2: Automated Deployment with Claude Code
 
@@ -51,6 +52,9 @@ sudo ./install.sh
 - Docker Compose 2.0+
 - 4GB RAM minimum
 - 20GB disk space
+- **8 consecutive available ports** (e.g., 8000-8007 or 3000-3007)
+  - Port range will be requested during installation
+  - Installer will check for port availability
 - (Optional) Domain name for production without ngrok
 
 ## 🏗️ Architecture

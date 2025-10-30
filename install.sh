@@ -80,6 +80,104 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 #############################################################################
+# Port Range Configuration
+#############################################################################
+
+echo ""
+log_info "=== Port Range Configuration ==="
+echo ""
+echo "This deployment requires 8 ports for the following services:"
+echo "  1. LobeChat UI"
+echo "  2. Casdoor Authentication"
+echo "  3. MinIO API"
+echo "  4. MinIO Console"
+echo "  5. PostgreSQL Database"
+echo "  6-8. Additional services (metrics, observability)"
+echo ""
+
+# Function to check if port is available
+check_port_available() {
+    local port=$1
+    if ss -tuln 2>/dev/null | grep -q ":${port} " || netstat -tuln 2>/dev/null | grep -q ":${port} "; then
+        return 1  # Port in use
+    fi
+    return 0  # Port available
+}
+
+# Prompt for port range
+while true; do
+    read -p "Enter starting port number (e.g., 8000): " PORT_START
+    read -p "Enter ending port number (e.g., 8010): " PORT_END
+
+    # Validate inputs are numbers
+    if ! [[ "$PORT_START" =~ ^[0-9]+$ ]] || ! [[ "$PORT_END" =~ ^[0-9]+$ ]]; then
+        log_error "Port numbers must be integers"
+        continue
+    fi
+
+    # Validate range
+    if [ "$PORT_START" -lt 1024 ] || [ "$PORT_START" -gt 65535 ]; then
+        log_error "Starting port must be between 1024 and 65535"
+        continue
+    fi
+
+    if [ "$PORT_END" -lt "$PORT_START" ]; then
+        log_error "Ending port must be greater than starting port"
+        continue
+    fi
+
+    # Check if range has enough ports
+    PORT_COUNT=$((PORT_END - PORT_START + 1))
+    if [ "$PORT_COUNT" -lt 8 ]; then
+        log_error "Port range too small. Need at least 8 ports, you provided ${PORT_COUNT}"
+        continue
+    fi
+
+    # Check if ports in range are available
+    log_info "Checking port availability in range ${PORT_START}-${PORT_END}..."
+    PORTS_IN_USE=0
+    for ((port=PORT_START; port<=PORT_END; port++)); do
+        if ! check_port_available "$port"; then
+            log_warning "Port ${port} is already in use"
+            ((PORTS_IN_USE++))
+        fi
+    done
+
+    if [ "$PORTS_IN_USE" -gt 0 ]; then
+        log_warning "Found ${PORTS_IN_USE} port(s) already in use in this range"
+        read -p "Continue anyway? (y/n): " CONTINUE
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+            continue
+        fi
+    fi
+
+    break
+done
+
+# Assign ports from the range
+PORT_LOBECHAT=$PORT_START
+PORT_CASDOOR=$((PORT_START + 1))
+PORT_MINIO_API=$((PORT_START + 2))
+PORT_MINIO_CONSOLE=$((PORT_START + 3))
+PORT_POSTGRES=$((PORT_START + 4))
+PORT_EXTRA_1=$((PORT_START + 5))
+PORT_EXTRA_2=$((PORT_START + 6))
+PORT_EXTRA_3=$((PORT_START + 7))
+
+log_success "Port assignments:"
+echo "  LobeChat UI:      ${PORT_LOBECHAT}"
+echo "  Casdoor Auth:     ${PORT_CASDOOR}"
+echo "  MinIO API:        ${PORT_MINIO_API}"
+echo "  MinIO Console:    ${PORT_MINIO_CONSOLE}"
+echo "  PostgreSQL:       ${PORT_POSTGRES}"
+echo "  Network Service:  ${PORT_EXTRA_1}"
+echo "  Metrics (OTLP):   ${PORT_EXTRA_2}"
+echo "  Metrics (HTTP):   ${PORT_EXTRA_3}"
+echo ""
+read -p "Press Enter to continue with deployment..."
+echo ""
+
+#############################################################################
 # Step 1: Prerequisites Check
 #############################################################################
 
@@ -186,7 +284,7 @@ log_success "Environment configuration created with secure passwords"
 
 log_info "Step 4/13: Creating Docker Compose configuration..."
 
-cat > "${INSTALL_DIR}/docker-compose.yml" << 'COMPOSE_EOF'
+cat > "${INSTALL_DIR}/docker-compose.yml" << COMPOSE_EOF
 version: '3.8'
 
 services:
@@ -199,14 +297,14 @@ services:
     networks:
       - lobe-network
     ports:
-      - '3000:3000'
-      - '3210:3210'
-      - '8000:8000'
-      - '9000:9000'
-      - '9001:9001'
-      - '5432:5432'
-      - '4317:4317'
-      - '4318:4318'
+      - '${PORT_EXTRA_1}:3000'
+      - '${PORT_LOBECHAT}:3210'
+      - '${PORT_CASDOOR}:8000'
+      - '${PORT_MINIO_API}:9000'
+      - '${PORT_MINIO_CONSOLE}:9001'
+      - '${PORT_POSTGRES}:5432'
+      - '${PORT_EXTRA_2}:4317'
+      - '${PORT_EXTRA_3}:4318'
 
   postgresql:
     image: pgvector/pgvector:pg17
@@ -708,9 +806,23 @@ Casdoor Auth:  https://${CASDOOR_DOMAIN}
 
 ${BLUE}LOCAL ACCESS (from server):${NC}
 ---------------------------
-LobeChat:      http://localhost:3210
-Casdoor:       http://localhost:8000
-MinIO Console: http://localhost:9001
+LobeChat:      http://localhost:${PORT_LOBECHAT}
+Casdoor:       http://localhost:${PORT_CASDOOR}
+MinIO API:     http://localhost:${PORT_MINIO_API}
+MinIO Console: http://localhost:${PORT_MINIO_CONSOLE}
+PostgreSQL:    localhost:${PORT_POSTGRES}
+
+${BLUE}ASSIGNED PORT RANGE:${NC}
+---------------------------
+Ports ${PORT_START}-${PORT_END} (requested range)
+  - LobeChat UI:      ${PORT_LOBECHAT}
+  - Casdoor Auth:     ${PORT_CASDOOR}
+  - MinIO API:        ${PORT_MINIO_API}
+  - MinIO Console:    ${PORT_MINIO_CONSOLE}
+  - PostgreSQL:       ${PORT_POSTGRES}
+  - Network Service:  ${PORT_EXTRA_1}
+  - Metrics (OTLP):   ${PORT_EXTRA_2}
+  - Metrics (HTTP):   ${PORT_EXTRA_3}
 
 ${YELLOW}DEFAULT CREDENTIALS (CHANGE IMMEDIATELY):${NC}
 -------------------
