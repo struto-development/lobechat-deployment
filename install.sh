@@ -3,7 +3,10 @@
 #############################################################################
 # LobeChat Production Deployment Script with ngrok Tunnels
 #
-# Usage: curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh | sudo bash
+# Usage:
+#   bash install.sh                           # Install to ~/lobechat (default)
+#   bash install.sh /custom/path              # Install to custom location
+#   INSTALL_DIR=/path bash install.sh         # Install via environment variable
 #
 # This script deploys LobeChat with Casdoor SSO using ngrok custom domains
 # for secure public access without requiring direct domain configuration.
@@ -18,8 +21,21 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-INSTALL_DIR="/opt/lobechat"
+# Configuration - Installation directory priority:
+# 1. Command line argument
+# 2. Environment variable INSTALL_DIR
+# 3. Default: ~/lobechat
+if [ -n "$1" ]; then
+    INSTALL_DIR="$1"
+elif [ -n "$INSTALL_DIR" ]; then
+    INSTALL_DIR="$INSTALL_DIR"
+else
+    INSTALL_DIR="${HOME}/lobechat"
+fi
+
+# Expand ~ to full path if present
+INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+
 NGROK_AUTH_TOKEN="34hLGYtNDN51ZhnuWmZ7u41ZxzR_55fpXZgDZbpPoJJbkQxGp"
 LOBECHAT_DOMAIN="strutoai-lobechat.struto.co.uk.ngrok.app"
 CASDOOR_DOMAIN="auth.strutoai-lobechat.struto.co.uk.ngrok.app"
@@ -74,25 +90,30 @@ log_info "  - LobeChat UI: https://${LOBECHAT_DOMAIN}"
 log_info "  - Casdoor Auth: https://${CASDOOR_DOMAIN}"
 echo ""
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    error_exit "This script must be run as root. Please use: sudo bash install.sh"
+# Check if running as root (warn but don't require it)
+if [ "$EUID" -eq 0 ]; then
+    log_warning "Running as root. This is not required when installing to home directory."
+    log_warning "Consider running without sudo: bash install.sh"
 fi
 
 #############################################################################
-# Port Range Configuration
+# Port Configuration
 #############################################################################
 
 echo ""
-log_info "=== Port Range Configuration ==="
+log_info "=== Port Configuration ==="
 echo ""
-echo "This deployment requires 8 ports for the following services:"
-echo "  1. LobeChat UI"
-echo "  2. Casdoor Authentication"
-echo "  3. MinIO API"
-echo "  4. MinIO Console"
-echo "  5. PostgreSQL Database"
-echo "  6-8. Additional services (metrics, observability)"
+echo "This deployment requires 8 consecutive ports for the following services:"
+echo "  Port +0: LobeChat UI"
+echo "  Port +1: Casdoor Authentication"
+echo "  Port +2: MinIO API"
+echo "  Port +3: MinIO Console"
+echo "  Port +4: PostgreSQL Database"
+echo "  Port +5: Network Service"
+echo "  Port +6: Metrics (OTLP)"
+echo "  Port +7: Metrics (HTTP)"
+echo ""
+echo "Example: If you use 3000 (default), ports 3000-3007 will be used."
 echo ""
 
 # Function to check if port is available
@@ -104,47 +125,42 @@ check_port_available() {
     return 0  # Port available
 }
 
-# Prompt for port range
+# Prompt for starting port with default
 while true; do
-    read -p "Enter starting port number (e.g., 8000): " PORT_START
-    read -p "Enter ending port number (e.g., 8010): " PORT_END
+    read -p "Enter starting port number [default: 3000]: " PORT_START
 
-    # Validate inputs are numbers
-    if ! [[ "$PORT_START" =~ ^[0-9]+$ ]] || ! [[ "$PORT_END" =~ ^[0-9]+$ ]]; then
-        log_error "Port numbers must be integers"
+    # Use default if empty
+    PORT_START=${PORT_START:-3000}
+
+    # Validate input is a number
+    if ! [[ "$PORT_START" =~ ^[0-9]+$ ]]; then
+        log_error "Port number must be an integer"
         continue
     fi
 
-    # Validate range
-    if [ "$PORT_START" -lt 1024 ] || [ "$PORT_START" -gt 65535 ]; then
-        log_error "Starting port must be between 1024 and 65535"
+    # Validate port range
+    if [ "$PORT_START" -lt 1024 ] || [ "$PORT_START" -gt 65527 ]; then
+        log_error "Starting port must be between 1024 and 65527 (to allow 8 consecutive ports)"
         continue
     fi
 
-    if [ "$PORT_END" -lt "$PORT_START" ]; then
-        log_error "Ending port must be greater than starting port"
-        continue
-    fi
+    # Calculate port range
+    PORT_END=$((PORT_START + 7))
 
-    # Check if range has enough ports
-    PORT_COUNT=$((PORT_END - PORT_START + 1))
-    if [ "$PORT_COUNT" -lt 8 ]; then
-        log_error "Port range too small. Need at least 8 ports, you provided ${PORT_COUNT}"
-        continue
-    fi
-
-    # Check if ports in range are available
-    log_info "Checking port availability in range ${PORT_START}-${PORT_END}..."
+    # Check if ports are available
+    log_info "Checking port availability for ${PORT_START}-${PORT_END}..."
     PORTS_IN_USE=0
+    UNAVAILABLE_PORTS=""
     for ((port=PORT_START; port<=PORT_END; port++)); do
         if ! check_port_available "$port"; then
             log_warning "Port ${port} is already in use"
+            UNAVAILABLE_PORTS="${UNAVAILABLE_PORTS}${port} "
             ((PORTS_IN_USE++))
         fi
     done
 
     if [ "$PORTS_IN_USE" -gt 0 ]; then
-        log_warning "Found ${PORTS_IN_USE} port(s) already in use in this range"
+        log_warning "Found ${PORTS_IN_USE} port(s) already in use: ${UNAVAILABLE_PORTS}"
         read -p "Continue anyway? (y/n): " CONTINUE
         if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
             continue
@@ -154,7 +170,7 @@ while true; do
     break
 done
 
-# Assign ports from the range
+# Assign ports incrementally
 PORT_LOBECHAT=$PORT_START
 PORT_CASDOOR=$((PORT_START + 1))
 PORT_MINIO_API=$((PORT_START + 2))
@@ -196,15 +212,34 @@ fi
 log_success "Docker Compose found: $(docker compose version | head -1)"
 
 # Check disk space (need at least 20GB free)
-AVAILABLE_SPACE=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
-if [ "${AVAILABLE_SPACE}" -lt 20 ]; then
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    AVAILABLE_SPACE=$(df -g / | awk 'NR==2 {print $4}')
+else
+    # Linux
+    AVAILABLE_SPACE=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
+fi
+
+if [ -n "$AVAILABLE_SPACE" ] && [ "${AVAILABLE_SPACE}" -lt 20 ]; then
     error_exit "Insufficient disk space. Need at least 20GB, have ${AVAILABLE_SPACE}GB"
 fi
 log_success "Disk space available: ${AVAILABLE_SPACE}GB"
 
 # Check memory (need at least 4GB)
-AVAILABLE_MEM=$(free -g | awk 'NR==2 {print $2}')
-if [ "${AVAILABLE_MEM}" -lt 4 ]; then
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS - convert bytes to GB
+    TOTAL_MEM=$(sysctl -n hw.memsize)
+    AVAILABLE_MEM=$((TOTAL_MEM / 1024 / 1024 / 1024))
+else
+    # Linux
+    if command -v free &> /dev/null; then
+        AVAILABLE_MEM=$(free -g | awk 'NR==2 {print $2}')
+    else
+        AVAILABLE_MEM="unknown"
+    fi
+fi
+
+if [ "$AVAILABLE_MEM" != "unknown" ] && [ "${AVAILABLE_MEM}" -lt 4 ]; then
     log_warning "Low memory detected: ${AVAILABLE_MEM}GB (recommended: 4GB+)"
 else
     log_success "Memory available: ${AVAILABLE_MEM}GB"
@@ -297,14 +332,14 @@ services:
     networks:
       - lobe-network
     ports:
-      - '${PORT_EXTRA_1}:3000'
-      - '${PORT_LOBECHAT}:3210'
-      - '${PORT_CASDOOR}:8000'
-      - '${PORT_MINIO_API}:9000'
-      - '${PORT_MINIO_CONSOLE}:9001'
-      - '${PORT_POSTGRES}:5432'
-      - '${PORT_EXTRA_2}:4317'
-      - '${PORT_EXTRA_3}:4318'
+      - 'PORT_EXTRA_1_VALUE:3000'
+      - 'PORT_LOBECHAT_VALUE:3210'
+      - 'PORT_CASDOOR_VALUE:8000'
+      - 'PORT_MINIO_API_VALUE:9000'
+      - 'PORT_MINIO_CONSOLE_VALUE:9001'
+      - 'PORT_POSTGRES_VALUE:5432'
+      - 'PORT_EXTRA_2_VALUE:4317'
+      - 'PORT_EXTRA_3_VALUE:4318'
 
   postgresql:
     image: pgvector/pgvector:pg17
@@ -314,7 +349,7 @@ services:
       - ./data/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=\${POSTGRES_PASSWORD}
       - POSTGRES_DB=casdoor
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -331,22 +366,23 @@ services:
       - ./data/minio:/data
     environment:
       - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_ROOT_PASSWORD=\${MINIO_ROOT_PASSWORD}
       - MINIO_VOLUMES=/data
       - MINIO_BROWSER=on
-      - MINIO_API_CORS_ALLOW_ORIGIN=${APP_URL}
+      - MINIO_API_CORS_ALLOW_ORIGIN=\${APP_URL}
     restart: unless-stopped
-    command: >
-      sh -c "
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
         minio server /data --address ':9000' --console-address ':9001' &
-        sleep 10 &&
-        mc alias set myminio http://localhost:9000 minioadmin ${MINIO_ROOT_PASSWORD} &&
-        mc mb -p myminio/lobe &&
-        mc anonymous set public myminio/lobe &&
-        mc mb -p myminio/casdoor &&
-        mc anonymous set public myminio/casdoor &&
+        sleep 10
+        mc alias set myminio http://localhost:9000 minioadmin \${MINIO_ROOT_PASSWORD}
+        mc mb -p myminio/lobe
+        mc anonymous set public myminio/lobe
+        mc mb -p myminio/casdoor
+        mc anonymous set public myminio/casdoor
         wait
-      "
 
   casdoor:
     image: casbin/casdoor:v2.13.0
@@ -357,8 +393,8 @@ services:
         condition: service_healthy
     environment:
       - driverName=postgres
-      - dataSourceName=postgres://postgres:${POSTGRES_PASSWORD}@localhost:5432/casdoor?sslmode=disable
-      - sessionSecret=${CASDOOR_SESSION_SECRET}
+      - dataSourceName=postgres://postgres:\${POSTGRES_PASSWORD}@localhost:5432/casdoor?sslmode=disable
+      - sessionSecret=\${CASDOOR_SESSION_SECRET}
     volumes:
       - ./config/casdoor/app.conf:/conf/app.conf:ro
       - ./config/casdoor/init_data.json:/init_data.json:ro
@@ -376,30 +412,28 @@ services:
       casdoor:
         condition: service_started
     environment:
-      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@localhost:5432/lobe
-      - APP_URL=${APP_URL}
-      - KEY_VAULTS_SECRET=${KEY_VAULTS_SECRET}
+      - DATABASE_URL=postgres://postgres:\${POSTGRES_PASSWORD}@localhost:5432/lobe
+      - APP_URL=\${APP_URL}
+      - KEY_VAULTS_SECRET=\${KEY_VAULTS_SECRET}
       - NEXT_AUTH_SSO_PROVIDERS=casdoor
-      - NEXT_AUTH_SECRET=${NEXT_AUTH_SECRET}
-      - AUTH_URL=${AUTH_URL}
-      - AUTH_CASDOOR_ISSUER=${AUTH_CASDOOR_ISSUER}
+      - NEXT_AUTH_SECRET=\${NEXT_AUTH_SECRET}
+      - AUTH_URL=\${AUTH_URL}
+      - AUTH_CASDOOR_ISSUER=\${AUTH_CASDOOR_ISSUER}
       - AUTH_CASDOOR_ID=a387a4892ee19b1a2249
       - AUTH_CASDOOR_SECRET=550db86c5cbdcee3f8e0c57a6cea524d5bc95765
       - AUTH_CASDOOR_APP_NAME=lobechat
       - S3_ACCESS_KEY_ID=minioadmin
-      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      - S3_SECRET_ACCESS_KEY=\${MINIO_ROOT_PASSWORD}
       - S3_ENDPOINT=http://localhost:9000
       - S3_BUCKET=lobe
-      - S3_PUBLIC_DOMAIN=${S3_PUBLIC_DOMAIN}
+      - S3_PUBLIC_DOMAIN=\${S3_PUBLIC_DOMAIN}
       - S3_ENABLE_PATH_STYLE=1
       # Optional AI Providers
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=\${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY:-}
+      - GROQ_API_KEY=\${GROQ_API_KEY:-}
+      - GEMINI_API_KEY=\${GEMINI_API_KEY:-}
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   # ngrok tunnel service
   ngrok:
@@ -418,6 +452,17 @@ networks:
   lobe-network:
     driver: bridge
 COMPOSE_EOF
+
+# Replace port placeholders with actual values
+sed -i.bak "s/PORT_LOBECHAT_VALUE/${PORT_LOBECHAT}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_CASDOOR_VALUE/${PORT_CASDOOR}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_MINIO_API_VALUE/${PORT_MINIO_API}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_MINIO_CONSOLE_VALUE/${PORT_MINIO_CONSOLE}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_POSTGRES_VALUE/${PORT_POSTGRES}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_EXTRA_1_VALUE/${PORT_EXTRA_1}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_EXTRA_2_VALUE/${PORT_EXTRA_2}/g" "${INSTALL_DIR}/docker-compose.yml"
+sed -i.bak "s/PORT_EXTRA_3_VALUE/${PORT_EXTRA_3}/g" "${INSTALL_DIR}/docker-compose.yml"
+rm -f "${INSTALL_DIR}/docker-compose.yml.bak"
 
 log_success "Docker Compose configuration created"
 
@@ -629,6 +674,8 @@ log_success "Casdoor initial data created with ngrok URLs"
 
 log_info "Step 8/13: Pulling Docker images (this may take several minutes)..."
 
+# Change to installation directory to ensure .env is loaded
+cd "${INSTALL_DIR}"
 docker compose pull 2>&1 | while IFS= read -r line; do
     echo "  $line"
 done
@@ -640,6 +687,9 @@ log_success "All Docker images pulled successfully"
 #############################################################################
 
 log_info "Step 9/13: Starting PostgreSQL and creating databases..."
+
+# Change to installation directory to ensure .env is loaded
+cd "${INSTALL_DIR}"
 
 # Start PostgreSQL first
 docker compose up -d postgresql
@@ -658,12 +708,46 @@ for i in {1..30}; do
     fi
 done
 
+# Wait a bit more for PostgreSQL to fully complete initialization
+# PostgreSQL does an init phase where it temporarily starts, creates default DB, and restarts
+log_info "Waiting for PostgreSQL initialization to complete..."
+sleep 5
+
+# Verify PostgreSQL is still ready after init
+for i in {1..10}; do
+    if docker exec lobe-postgres pg_isready -U postgres &>/dev/null; then
+        log_success "PostgreSQL initialization complete"
+        break
+    fi
+    echo -n "."
+    sleep 2
+    if [ $i -eq 10 ]; then
+        error_exit "PostgreSQL became unavailable after initialization"
+    fi
+done
+
 # Create the lobe database (critical step to prevent migration errors)
 log_info "Creating 'lobe' database..."
-if docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;" 2>/dev/null; then
+if docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;" 2>&1 | grep -q "CREATE DATABASE\|already exists"; then
     log_success "Database 'lobe' created successfully"
 else
     log_warning "Database 'lobe' may already exist, continuing..."
+fi
+
+# Verify the database was created
+log_info "Verifying 'lobe' database exists..."
+if docker exec lobe-postgres psql -U postgres -l | grep -q "lobe"; then
+    log_success "Database 'lobe' verified"
+else
+    log_error "Database 'lobe' not found after creation!"
+    log_info "Retrying database creation..."
+    docker exec lobe-postgres psql -U postgres -c "CREATE DATABASE lobe;" 2>&1 || true
+    sleep 2
+    if docker exec lobe-postgres psql -U postgres -l | grep -q "lobe"; then
+        log_success "Database 'lobe' created on retry"
+    else
+        error_exit "Failed to create 'lobe' database after retry"
+    fi
 fi
 
 #############################################################################
@@ -672,6 +756,7 @@ fi
 
 log_info "Step 10/13: Starting all services..."
 
+# Already in INSTALL_DIR from previous step
 docker compose up -d
 
 # Wait for services to initialize
@@ -854,10 +939,10 @@ ${BLUE}IMPORTANT NEXT STEPS:${NC}
 
 ${GREEN}SERVICE MANAGEMENT:${NC}
 ------------------
-View logs:     docker compose -f ${INSTALL_DIR}/docker-compose.yml logs -f [service]
-Restart:       docker compose -f ${INSTALL_DIR}/docker-compose.yml restart [service]
-Stop all:      docker compose -f ${INSTALL_DIR}/docker-compose.yml down
-Start all:     docker compose -f ${INSTALL_DIR}/docker-compose.yml up -d
+View logs:     cd ${INSTALL_DIR} && docker compose logs -f [service]
+Restart:       cd ${INSTALL_DIR} && docker compose restart [service]
+Stop all:      cd ${INSTALL_DIR} && docker compose down
+Start all:     cd ${INSTALL_DIR} && docker compose up -d
 Backup:        ${INSTALL_DIR}/backup.sh
 
 Check tunnels: docker exec lobe-ngrok wget -O - http://localhost:4040/api/tunnels 2>/dev/null | python3 -m json.tool

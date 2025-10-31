@@ -7,17 +7,27 @@ Production-ready deployment of LobeChat with Casdoor SSO authentication, Postgre
 ### Option 1: One-Line Installation (Fastest)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh | sudo bash
+# Install to default location (~/lobechat)
+bash <(curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh)
+
+# Or install to custom location
+bash <(curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh) /custom/path
+
+# Or use environment variable
+INSTALL_DIR=/custom/path bash <(curl -sL https://raw.githubusercontent.com/struto-development/lobechat-deployment/main/install.sh)
 ```
 
 This single command will:
-- **Prompt for port range** (you'll need 8 consecutive ports, e.g., 8000-8007)
+- **Install to ~/lobechat by default** (or custom location if specified)
+- **Prompt for starting port number** (e.g., 3000, which will use ports 3000-3007)
 - Check prerequisites and port availability
 - Create directory structure
 - Generate secure passwords
 - Deploy all services with proper timing
 - Create backups automation
 - Provide full deployment summary with assigned ports
+
+**Note**: No sudo required when installing to home directory!
 
 ### Option 2: Automated Deployment with Claude Code
 
@@ -31,8 +41,11 @@ Simply tell Claude Code:
 git clone https://github.com/struto-development/lobechat-deployment.git
 cd lobechat-deployment
 
-# Run the installation script
-sudo ./install.sh
+# Run the installation script (no sudo needed for home directory)
+bash install.sh
+
+# Or install to custom location
+bash install.sh /custom/path
 
 # OR follow the step-by-step instructions in AGENT_DEPLOY.md
 ```

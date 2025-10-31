@@ -52,4 +52,4 @@ credentials/
 
 # Keep example files
 !.env.example
-!*.example
+!*.example./temp
